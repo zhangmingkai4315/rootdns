@@ -1,26 +1,27 @@
-## LocalRoot 
+## RootDNS 
 
-LocalRoot is a lite dns server implemented rfc7706. 
-Internally, data synchronization is achieved through polling. Currently, two polling methods are supported: http and axfr.
+RootDNS is a lite dns server implemented rfc7706. 
+
 
 ### 1. System Diagram
 
-System diagram as below. you can set custom url or dns server for polling data. When data read, it will auto save to local storage.
-So the server will still working even the upstream is down. If you have a local zone file, even without internet connection, the server will still provide dns response as a root server.
+System diagram as below. You can set custom url or dns server for polling data. When data ready, it will auto save to local storage.
+The server will still work even the upstream is down in some time. If you have a local root zone file, even without internet connection, the server will still provide dns response as a root server.
 
+Internally, data synchronization using http protocol or DNS AXFR protocol.
 
 ![](./images/main.jpg)
 
-### 2. Server Install
+### 2. Install
 
 - Download the release version for different platform. 
 - Using Go tools. ```go get github.com/zhangmingkai4315/rootdns``` 
 - Clone this repo to your computer and compile yourself.
 
 
-### 3. Cli Argument
+### 3. Cli Arguments
 
-All the arguments list below.All arguments has default value, so you can start the sever without set any argument.
+All arguments has default value, so you can start the sever without set any argument.
 ```shell
   -debug
         enable debug level log output

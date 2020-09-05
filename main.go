@@ -2,97 +2,58 @@ package main
 
 import (
 	"flag"
-	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
-	"sync"
+	log "github.com/sirupsen/logrus"
 	"time"
 )
-
-
 
 var listenAt string
 var syncDuration time.Duration
 var zoneFileName string
-var upstream string
-var syncType string
+var prefer string
+var syncMethod string
+var debug bool
+
 func init() {
-	flag.StringVar(&syncType, "t", "axfr","sync method for zone file[axfr]")
-	flag.StringVar(&upstream, "upstream", "", "root servers for sync data")
-	flag.StringVar(&zoneFileName, "f", "root.zone", "root zone file name[root.zone]")
-	flag.StringVar(&listenAt, "l", "0.0.0.0:53", "root dns server listen port[0.0.0.0:53]")
-	flag.DurationVar(&syncDuration, "d", time.Minute, "sync original root zone file from upstream server")
+	flag.StringVar(&syncMethod, "type", "axfr", "sync method for zone file only support axfr and http")
+	flag.StringVar(&prefer, "prefer", "", "custom prefer root servers or url for sync data")
+	flag.StringVar(&zoneFileName, "file", "root.zone", "local root zone file name")
+	flag.StringVar(&listenAt, "listen", "0.0.0.0:53", "root dns server listen port")
+	flag.DurationVar(&syncDuration, "interval", time.Minute, "sync original root zone file from upstream server")
+	flag.BoolVar(&debug, "debug", false, "enable debug level log output")
 }
 
-type Manager struct {
-	sync.RWMutex
-	zoneStore         *ZoneStore
-	synchronizer    ZoneSynchronizer
-	zonefile     string
-	syncDuration time.Duration
-}
+func main() {
+	flag.Parse()
+	// 日志设置：如果不设置级别，默认为warning
+	customFormatter := new(log.TextFormatter)
+	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
+	log.SetFormatter(customFormatter)
+	customFormatter.FullTimestamp = true
+	if debug == true {
+		log.SetLevel(log.DebugLevel)
+		log.Debug("set application log level to debug")
+	} else {
+		log.SetLevel(log.InfoLevel)
 
-func NewManager(fileName string , duration time.Duration) *Manager{
-	manager := Manager{
-		zonefile:    fileName,
-		syncDuration: duration,
 	}
-	go func() {
-		for range time.NewTicker(duration).C{
-			logrus.Debug("sync file from server using axfr")
-			err := manager.sync()
-			if err != nil{
-				logrus.Errorf("sync root zone file fail %s", err)
-			}
-		}
-	}()
-
-	return &manager
-}
-
-func (manager *Manager) sync()error{
-
-	data, err:= manager.synchronizer.Download()
-	if err != nil{
-		return err
-	}
-	manager.Lock()
-	defer manager.Unlock()
-	manager.zoneStore = data
-	return nil
-}
-
-
-func (manager *Manager)handleRequest(w dns.ResponseWriter, r *dns.Msg) {
-	m := new(dns.Msg)
-	m.SetReply(r)
-	if len(r.Question) == 0{
-		w.WriteMsg(m)
+	manager, err := NewManager(zoneFileName, syncDuration, syncMethod, prefer)
+	if err != nil {
+		log.Error(err)
 		return
 	}
-	domain := r.Question[0].Name
-	qtype := r.Question[0].Qtype
-
-	tld:=getTLDFromDomain(domain)
-	manager.RLock()
-	defer manager.RUnlock()
-	answer, ns, extra := manager.zoneStore.Query(tld,qtype)
-	m.Answer = answer
-	m.Ns = ns
-	m.Extra = extra
-	w.WriteMsg(m)
-}
-
-func (manager *Manager) Run(listenAt string) error {
-	server := dns.Server{Addr: listenAt, Net: "udp"}
-	dns.HandleFunc(".", manager.handleRequest)
-
-	logrus.Infof("start dns server at : %s", listenAt)
-	err := server.ListenAndServe()
-	return err
-}
-
-func main(){
-	flag.Parse()
-	manager := NewManager(zoneFileName, syncDuration)
-	logrus.Panic(manager.Run(listenAt))
+	log.Infof("start sync from remote dns server")
+	err = manager.Sync()
+	if err != nil {
+		log.Errorf("sync fail:%s", err)
+		// using local server file if exist
+		err := manager.SyncFromFile()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		log.Warning("load local zone file success")
+		log.Warning("server will provide dns response using stale zone data")
+	}
+	log.Infof("ready to serve root dns query")
+	log.Panic(manager.Run(listenAt))
 }
